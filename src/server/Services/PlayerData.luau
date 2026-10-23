@@ -22,7 +22,8 @@ local TEMPLATE = {
 
 	cart = {}, -- [oreId] = count
 	cartCount = 0,
-	gems = {}, -- [gemId] = count
+	gemCoins = 0, -- coins waiting at the Assay Office for gems you have cracked
+	gems = {}, -- (old saves only) [gemId] = count; turned into gemCoins on load
 
 	bitLevel = 1, -- index into Economy.Bits
 	cartLevel = 1, -- index into Economy.Carts
@@ -33,11 +34,15 @@ local TEMPLATE = {
 
 	critters = {}, -- list of { id = "c1", species = "pebblemole" }
 	crew = {}, -- list of critter ids assigned to crew slots
-	geodes = {}, -- list of { id = "g2", rarity = "Common", foundAt = t, maturesAt = t }
+	geodes = {}, -- list of { id = "g2", rarity = "Common", stratum = 3, foundAt = t, maturesAt = t }
 	incubators = {}, -- list of { id = "e7", egg = "dirt", startedAt = t, hatchAt = t }
 	eggShop = { restock = -1, bought = {} }, -- eggs bought in the current Hatchery restock
 	nextId = 1,
 	cracks = 0, -- geodes cracked, ever
+	gemBook = {}, -- gem id -> how many you have ever found (the Gem Book)
+	gemFlawless = {}, -- gem id -> true once you have found a Flawless one
+	equippedGems = {}, -- gem ids on your gem stand, in slot order (up to Economy.GemSlots)
+	gemSets = {}, -- ["Rare"] = true once that tier of the Gem Book is complete, ["all"] for all 50
 
 	purchases = {}, -- processed Robux receipt ids (Phase 3)
 }

@@ -7,6 +7,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Strata = require(Shared.Config.Strata)
+local OreConfig = require(Shared.Config.Ores)
 local Economy = require(Shared.Config.Economy)
 local Critters = require(Shared.Config.Critters)
 local Formulas = require(Shared.Formulas)
@@ -24,7 +25,7 @@ local timeOffset = 0 -- serverTime - local os.time()
 local lastStratum = nil
 
 -- widgets
-local coinsLabel, depthLabel, stratumLabel, rateLabel, bitLabel
+local coinsLabel, depthLabel, stratumLabel, rateLabel, bitLabel, heatLabel, depthPanel
 local cartFill, cartLabel, cartFrame
 local rackFrame, rackSlots = nil, {}
 local crewButton, crewPanel, crewList
@@ -57,6 +58,7 @@ end
 
 local function buildDepth()
 	local f = Style.Panel(gui, "Depth", UDim2.fromOffset(250, 132), UDim2.new(1, -16, 0, 16), Vector2.new(1, 0))
+	depthPanel = f
 	Style.Padding(f, 10)
 	local list = Instance.new("UIListLayout")
 	list.SortOrder = Enum.SortOrder.LayoutOrder
@@ -65,6 +67,41 @@ local function buildDepth()
 	stratumLabel = Style.Label(f, "Clay Beds", 20, { heading = true, LayoutOrder = 2, TextXAlignment = Enum.TextXAlignment.Right })
 	rateLabel = Style.Label(f, "", 16, { LayoutOrder = 3, TextXAlignment = Enum.TextXAlignment.Right })
 	bitLabel = Style.Label(f, "", 16, { LayoutOrder = 4, TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = C.Muted })
+	-- only shown in hot strata when the crew lacks Heat
+	heatLabel = Style.Label(f, "", 15, {
+		heading = true,
+		LayoutOrder = 5,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Color3.fromHex("D63B3B"),
+		Visible = false,
+	})
+end
+
+-- How fast a critter digs here because of heat (1 = full speed)
+local function heatSpeed(critter, stratumIndex: number): number
+	local sp = Critters.Species[critter.species]
+	local stratum = Strata[stratumIndex]
+	if not (sp and stratum) then
+		return 1
+	end
+	-- Heat gems on the stand add to every critter's Heat
+	local gemHeat = state and state.gemBoosts and state.gemBoosts.heat or 0
+	return Formulas.HeatFactor(Formulas.CritterStats(critter.species, critter.stars or 0).heat + gemHeat, stratum.heat)
+end
+
+-- The crew's overall speed from heat, weighted by how much each critter digs
+local function crewHeatSpeed(): number
+	local total, effective = 0, 0
+	for _, id in ipairs(state.crew) do
+		for _, c in ipairs(state.critters) do
+			if c.id == id then
+				local dig = Formulas.CritterStats(c.species, c.stars or 0).dig
+				total += dig
+				effective += dig * heatSpeed(c, state.stratum)
+			end
+		end
+	end
+	return total > 0 and effective / total or 1
 end
 
 local function buildCart()
@@ -140,20 +177,47 @@ local function buildCrew()
 	crewButton.Position = UDim2.new(0, 16, 0.5, 0)
 	crewButton.AnchorPoint = Vector2.new(0, 0.5)
 
-	crewPanel = Style.Panel(gui, "CrewPanel", UDim2.fromOffset(460, 380), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	crewPanel = Style.Panel(gui, "CrewPanel", UDim2.fromOffset(640, 480), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	crewPanel.Visible = false
 	crewPanel.ZIndex = 5
 	Style.Padding(crewPanel, 14)
-	Style.Label(crewPanel, "Your crew", 28, { heading = true, Name = "Title" })
+	Style.Label(crewPanel, "Your crew", 26, { heading = true, Name = "Title", Size = UDim2.new(1, -230, 0, 32) })
+	Style.Label(crewPanel, "Merge two of the same critter with the same stars to make it a star stronger.", 14, {
+		Name = "Hint",
+		Position = UDim2.fromOffset(0, 32),
+		Size = UDim2.new(1, -230, 0, 18),
+		TextColor3 = C.Muted,
+	})
 	local close = Style.Button(crewPanel, "X", C.Red, UDim2.fromOffset(40, 40), function()
 		crewPanel.Visible = false
 	end)
 	close.Position = UDim2.new(1, 0, 0, 0)
 	close.AnchorPoint = Vector2.new(1, 0)
+	local mergeAll = Style.Button(crewPanel, "Merge all", Color3.fromHex("9B5DE5"), UDim2.fromOffset(150, 40), function()
+		HUD.Confirm(
+			"Merge all?",
+			"Every matching pair will merge, cascading up the stars. Locked critters and critters on your crew are never used up.",
+			"Merge all",
+			Color3.fromHex("9B5DE5"),
+			function()
+				local result = Remotes.MergeAll:InvokeServer()
+				if result and result.message then
+					if result.ok then
+						HUD.Banner(result.message)
+					else
+						HUD.Toast(result.message)
+					end
+				end
+			end
+		)
+	end)
+	mergeAll.Position = UDim2.new(1, -50, 0, 0)
+	mergeAll.AnchorPoint = Vector2.new(1, 0)
+	mergeAll.TextSize = 18
 
 	crewList = Instance.new("ScrollingFrame")
-	crewList.Size = UDim2.new(1, 0, 1, -48)
-	crewList.Position = UDim2.fromOffset(0, 48)
+	crewList.Size = UDim2.new(1, 0, 1, -60)
+	crewList.Position = UDim2.fromOffset(0, 60)
 	crewList.BackgroundTransparency = 1
 	crewList.BorderSizePixel = 0
 	crewList.ScrollBarThickness = 6
@@ -187,6 +251,7 @@ local function buildToasts()
 	toastHolder.AnchorPoint = Vector2.new(0.5, 0)
 	toastHolder.Position = UDim2.new(0.5, 0, 0, 16)
 	toastHolder.Size = UDim2.fromOffset(480, 300)
+	toastHolder.ZIndex = 40 -- above open panels
 	toastHolder.Parent = gui
 	local layout = Instance.new("UIListLayout")
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
@@ -211,6 +276,52 @@ end
 ----------------------------------------------------------------------
 
 local crewSignature = ""
+local RARITY_RANK = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+local MAX_STARS = Economy.Merge.MaxStars
+
+-- "★★☆☆☆" with the earned stars in gold (rich text)
+local function starText(stars: number): string
+	return string.format(
+		'<font color="#E0A100">%s</font><font color="#C9BBA8">%s</font>',
+		string.rep("★", stars),
+		string.rep("☆", MAX_STARS - stars)
+	)
+end
+
+local function critterLabel(c): string
+	local sp = Critters.Species[c.species]
+	local stars = c.stars or 0
+	return (stars > 0 and (stars .. "★ ") or "") .. sp.name
+end
+
+-- Another critter this one can merge with (same species and stars). Prefers a spare
+-- on the bench that isn't locked, since that's the one that gets used up.
+local function mergePartner(c)
+	local best, bestScore = nil, -1
+	for _, other in ipairs(state.critters) do
+		if other.id ~= c.id and other.species == c.species and (other.stars or 0) == (c.stars or 0) then
+			if not (c.locked and other.locked) then
+				local score = 0
+				if not other.locked then
+					score += 2
+				end
+				if not table.find(state.crew, other.id) then
+					score += 1
+				end
+				if score > bestScore then
+					best, bestScore = other, score
+				end
+			end
+		end
+	end
+	return best
+end
+
+local function smallButton(parent, text, color, width, onClick)
+	local b = Style.Button(parent, text, color, UDim2.fromOffset(width, 38), onClick)
+	b.TextSize = 15
+	return b
+end
 
 local function refreshCrew()
 	if not state then
@@ -220,7 +331,11 @@ local function refreshCrew()
 	crewPanel.Title.Text = string.format("Your crew  (%d/%d working)", #state.crew, state.crewSlots)
 
 	-- only rebuild the list when something changed
-	local sig = table.concat(state.crew, ",") .. "|" .. #state.critters
+	local parts = { table.concat(state.crew, ","), tostring(state.stratum) }
+	for _, c in ipairs(state.critters) do
+		table.insert(parts, c.id .. ":" .. (c.stars or 0) .. (c.locked and "L" or ""))
+	end
+	local sig = table.concat(parts, "|")
 	if sig == crewSignature then
 		return
 	end
@@ -231,44 +346,183 @@ local function refreshCrew()
 			child:Destroy()
 		end
 	end
-	for order, critter in ipairs(state.critters) do
+
+	-- crew first, then rarer and higher-star critters
+	local sorted = table.clone(state.critters)
+	table.sort(sorted, function(a, b)
+		local wa, wb = table.find(state.crew, a.id) ~= nil, table.find(state.crew, b.id) ~= nil
+		if wa ~= wb then
+			return wa
+		end
+		local ra, rb = RARITY_RANK[Critters.Species[a.species].rarity], RARITY_RANK[Critters.Species[b.species].rarity]
+		if ra ~= rb then
+			return ra > rb
+		end
+		if (a.stars or 0) ~= (b.stars or 0) then
+			return (a.stars or 0) > (b.stars or 0)
+		end
+		return a.species < b.species
+	end)
+
+	for order, critter in ipairs(sorted) do
 		local sp = Critters.Species[critter.species]
 		if sp then
+			local stars = critter.stars or 0
 			local working = table.find(state.crew, critter.id) ~= nil
 			local row = Instance.new("Frame")
-			row.Size = UDim2.new(1, -10, 0, 64)
+			row.Size = UDim2.new(1, -10, 0, 72)
 			row.BackgroundColor3 = working and Color3.fromHex("F3E6C8") or C.Panel
-			row.LayoutOrder = working and order or order + 1000
+			row.LayoutOrder = order
 			Style.Corner(row, 10)
 			Style.Stroke(row, 2, Critters.RarityColors[sp.rarity])
 			row.Parent = crewList
-			Style.Label(row, sp.name, 20, {
+
+			local name = Style.Label(row, sp.name .. "  " .. starText(stars), 19, {
 				heading = true,
+				RichText = true,
 				Position = UDim2.fromOffset(12, 6),
-				Size = UDim2.new(1, -150, 0, 24),
+				Size = UDim2.new(1, -360, 0, 24),
 			})
-			local stats = string.format("%s  ·  Dig %.1f", sp.rarity, sp.dig)
-			if sp.luck > 0 then
-				stats ..= string.format("  ·  Luck +%d%%", sp.luck * 100)
+			name.TextTruncate = Enum.TextTruncate.AtEnd
+			local st = Formulas.CritterStats(critter.species, stars)
+			local stats = string.format("%s  ·  Dig %.1f", sp.rarity, st.dig)
+			if st.luck > 0 then
+				stats ..= string.format("  ·  Luck +%d%%", math.floor(st.luck * 100 + 0.5))
 			end
-			if sp.heat > 0 then
-				stats ..= "  ·  Heat " .. sp.heat
+			if st.heat > 0 then
+				stats ..= string.format("  ·  Heat %.1f", st.heat)
 			end
-			Style.Label(row, stats, 15, {
-				Position = UDim2.fromOffset(12, 34),
-				Size = UDim2.new(1, -150, 0, 20),
+			Style.Label(row, stats, 14, {
+				Position = UDim2.fromOffset(12, 32),
+				Size = UDim2.new(1, -360, 0, 18),
 				TextColor3 = C.Muted,
 			})
-			local b = Style.Button(row, working and "Rest" or "Assign", working and C.Orange or C.Green, UDim2.fromOffset(110, 40), function()
+			local where = working and "On your crew" or "On the bench"
+			local speed = heatSpeed(critter, state.stratum)
+			if speed < 0.995 then
+				where ..= string.format('  ·  <font color="#D63B3B">too hot here: %d%% speed</font>', math.floor(speed * 100 + 0.5))
+			end
+			Style.Label(row, where, 13, {
+				RichText = true,
+				Position = UDim2.fromOffset(12, 50),
+				Size = UDim2.new(1, -360, 0, 16),
+				TextColor3 = working and Color3.fromHex("2E9E44") or C.Muted,
+			})
+
+			-- buttons, right to left
+			local buttons = Instance.new("Frame")
+			buttons.BackgroundTransparency = 1
+			buttons.AnchorPoint = Vector2.new(1, 0.5)
+			buttons.Position = UDim2.new(1, -8, 0.5, 0)
+			buttons.Size = UDim2.fromOffset(350, 40)
+			buttons.Parent = row
+			local bl = Instance.new("UIListLayout")
+			bl.FillDirection = Enum.FillDirection.Horizontal
+			bl.HorizontalAlignment = Enum.HorizontalAlignment.Right
+			bl.VerticalAlignment = Enum.VerticalAlignment.Center
+			bl.SortOrder = Enum.SortOrder.LayoutOrder
+			bl.Padding = UDim.new(0, 6)
+			bl.Parent = buttons
+
+			local lock = smallButton(buttons, critter.locked and "Locked" or "Lock", critter.locked and C.Gold or C.Disabled, 70, function()
+				Remotes.ToggleLock:InvokeServer(critter.id)
+			end)
+			lock.LayoutOrder = 1
+
+			local partner = stars < MAX_STARS and mergePartner(critter) or nil
+			if partner then
+				local merge = smallButton(buttons, "Merge", Color3.fromHex("9B5DE5"), 74, function()
+					local next = Formulas.CritterStats(critter.species, stars + 1)
+					HUD.Confirm(
+						"Merge into " .. (stars + 1) .. "★ " .. sp.name .. "?",
+						string.format(
+							"Two %s become one %d★ %s with Dig %.1f (now %.1f). One of them is used up.",
+							critterLabel(critter),
+							stars + 1,
+							sp.name,
+							next.dig,
+							st.dig
+						),
+						"Merge",
+						Color3.fromHex("9B5DE5"),
+						function()
+							local result = Remotes.MergeCritters:InvokeServer(critter.id, partner.id)
+							if result and result.message then
+								if result.ok then
+									HUD.Banner(result.message)
+								else
+									HUD.Toast(result.message)
+								end
+							end
+						end
+					)
+				end)
+				merge.LayoutOrder = 2
+			end
+
+			if not working and not critter.locked then
+				local value = Formulas.CritterSellValue(critter.species, stars)
+				local sell = smallButton(buttons, "Sell " .. Formulas.FormatNumber(value), C.Red, 96, function()
+					HUD.Confirm(
+						"Sell your " .. critterLabel(critter) .. "?",
+						"You'll get " .. Formulas.FormatNumber(value) .. " coins. This can't be undone.",
+						"Sell",
+						C.Red,
+						function()
+							local result = Remotes.SellCritter:InvokeServer(critter.id)
+							if result and result.message then
+								HUD.Toast(result.message)
+							end
+						end
+					)
+				end)
+				sell.LayoutOrder = 3
+			end
+
+			local assign = smallButton(buttons, working and "Rest" or "Assign", working and C.Orange or C.Green, 76, function()
 				local result = Remotes.SetCrew:InvokeServer(critter.id, not working)
 				if result and result.message then
 					HUD.Toast(result.message)
 				end
 			end)
-			b.Position = UDim2.new(1, -10, 0.5, 0)
-			b.AnchorPoint = Vector2.new(1, 0.5)
+			assign.LayoutOrder = 4
 		end
 	end
+end
+
+-- A yes/no card on top of everything
+local confirmCard = nil
+function HUD.Confirm(title: string, body: string, confirmText: string, confirmColor: Color3, onConfirm: () -> ())
+	if confirmCard then
+		confirmCard:Destroy()
+	end
+	local card = Style.Panel(gui, "Confirm", UDim2.fromOffset(420, 190), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	card.ZIndex = 30
+	Style.Padding(card, 16)
+	confirmCard = card
+	Style.Label(card, title, 24, { heading = true, TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true, Size = UDim2.new(1, 0, 0, 30) })
+	Style.Label(card, body, 16, {
+		Position = UDim2.fromOffset(0, 40),
+		Size = UDim2.new(1, 0, 0, 60),
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	})
+	local function closeCard()
+		card:Destroy()
+		if confirmCard == card then
+			confirmCard = nil
+		end
+	end
+	local cancel = Style.Button(card, "Cancel", C.Disabled, UDim2.fromOffset(160, 46), closeCard)
+	cancel.Position = UDim2.new(0.5, -8, 1, 0)
+	cancel.AnchorPoint = Vector2.new(1, 1)
+	local ok = Style.Button(card, confirmText, confirmColor, UDim2.fromOffset(160, 46), function()
+		closeCard()
+		onConfirm()
+	end)
+	ok.Position = UDim2.new(0.5, 8, 1, 0)
+	ok.AnchorPoint = Vector2.new(0, 1)
 end
 
 ----------------------------------------------------------------------
@@ -383,11 +637,20 @@ function HUD.Update(newState)
 	stratumLabel.Text = stratum.name
 	stratumLabel.TextColor3 = stratum.rockColor:Lerp(C.Text, 0.35)
 	local bit = Economy.Bits[state.bitLevel]
+	-- the bit line is only about the bit: heat and hardness are shown separately
 	if state.fullSpeedTo == math.huge then
-		bitLabel.Text = bit.name .. "  ·  full speed everywhere"
+		bitLabel.Text = bit.name .. "  ·  strong everywhere"
 	else
-		bitLabel.Text = string.format("%s  ·  full speed to %s m", bit.name, Formulas.FormatNumber(state.fullSpeedTo))
+		bitLabel.Text = string.format("%s  ·  strong to %s m", bit.name, Formulas.FormatNumber(state.fullSpeedTo))
 	end
+
+	local heatPct = crewHeatSpeed()
+	local hot = stratum.heat > 0 and heatPct < 0.995
+	heatLabel.Visible = hot
+	if hot then
+		heatLabel.Text = string.format("Too hot: crew at %d%% (needs Heat %d)", math.floor(heatPct * 100 + 0.5), stratum.heat)
+	end
+	depthPanel.Size = UDim2.fromOffset(250, hot and 154 or 132)
 
 	local frac = state.cartCount / state.cartCapacity
 	TweenService:Create(cartFill, TweenInfo.new(0.3), { Size = UDim2.fromScale(math.clamp(frac, 0, 1), 1) }):Play()
@@ -434,6 +697,7 @@ function HUD.Banner(text: string)
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextTransparency = 1,
 		TextStrokeTransparency = 1,
+		ZIndex = 40, -- above open panels
 	})
 	TweenService:Create(l, TweenInfo.new(0.4), { TextTransparency = 0, TextStrokeTransparency = 0 }):Play()
 	task.delay(3, function()
@@ -513,7 +777,43 @@ function HUD.ShowCrack(result)
 		revealCard:Destroy()
 	end
 	local color = Critters.RarityColors[result.rarity] or C.Gold
-	revealCard = Style.Panel(gui, "Reveal", UDim2.fromOffset(420, 250), UDim2.fromScale(0.5, 0.45), Vector2.new(0.5, 0.5))
+	local gem = OreConfig.Gems[result.gemId]
+	local stratum = Strata[result.stratum or 1]
+
+	-- extra finds, one line each
+	local extras = {}
+	if result.critter then
+		local sp = Critters.Species[result.critter]
+		table.insert(extras, {
+			text = (sp.name:match("^[AEIOUaeiou]") and "An " or "A ") .. sp.name .. " was sleeping inside!" .. (result.joinedCrew and " It joined your crew." or " It's on your bench."),
+			color = Critters.RarityColors[sp.rarity]:Lerp(C.Outline, 0.25),
+		})
+	end
+	if result.shard then
+		table.insert(extras, { text = "A Core Shard! Your crew digs 10% faster for good.", color = Color3.fromHex("9B5DE5") })
+	end
+	if result.completedTier then
+		table.insert(extras, {
+			text = string.format("All %s gems found! +%d Core Shard", result.completedTier, result.setShards or 1),
+			color = Color3.fromHex("C98A00"),
+		})
+	end
+	if result.completedBook then
+		table.insert(extras, {
+			text = string.format("Gem Book complete! All 50 found: +%d Core Shards", result.bookShards or 3),
+			color = Color3.fromHex("C98A00"),
+		})
+	end
+	if result.pouch then
+		table.insert(extras, {
+			text = string.format("A pouch of %d %s: +%s coins", result.pouch.amount, result.pouch.name, Formulas.FormatNumber(result.pouch.coins)),
+			color = Color3.fromHex("2E9E44"),
+		})
+	end
+
+	local LINE = 26
+	local height = 222 + #extras * LINE
+	revealCard = Style.Panel(gui, "Reveal", UDim2.fromOffset(440, height), UDim2.fromScale(0.5, 0.45), Vector2.new(0.5, 0.5))
 	revealCard.ZIndex = 10
 	Style.Padding(revealCard, 16)
 	local s = revealCard:FindFirstChildOfClass("UIStroke")
@@ -525,31 +825,46 @@ function HUD.ShowCrack(result)
 	scale.Parent = revealCard
 	TweenService:Create(scale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 
-	Style.Label(revealCard, result.rarity .. " geode", 20, {
+	Style.Label(revealCard, result.rarity .. " geode  ·  " .. stratum.name, 18, {
 		heading = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.Muted,
 	})
-	Style.Label(revealCard, result.gemName .. "!", 42, {
+	Style.Label(revealCard, result.gemName .. "!", 40, {
 		heading = true,
 		outlined = true,
-		Position = UDim2.fromOffset(0, 30),
+		Position = UDim2.fromOffset(0, 28),
 		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = color,
+		TextColor3 = gem and gem.color:Lerp(color, 0.3) or color,
+	})
+	local chance = (result.chance or 0) * 100
+	local infoText = string.format(chance < 10 and "%.1f%% of %s gems" or "%d%% of %s gems", chance < 10 and chance or math.floor(chance + 0.5), result.rarity)
+	if result.flawless then
+		infoText = '<font color="#C98A00">★ Flawless (x' .. Economy.FlawlessMult .. ')</font>  ·  ' .. infoText
+	end
+	if result.isNew then
+		infoText ..= '  ·  <font color="#2E9E44">NEW in your Gem Book!</font>'
+	elseif result.newFlawless then
+		infoText ..= '  ·  <font color="#2E9E44">First Flawless one!</font>'
+	end
+	Style.Label(revealCard, infoText, 16, {
+		heading = true,
+		RichText = true,
+		Position = UDim2.fromOffset(0, 80),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Muted,
 	})
 	Style.Label(revealCard, "Worth " .. Formulas.FormatNumber(result.gemValue) .. " coins at the Assay Office", 17, {
-		Position = UDim2.fromOffset(0, 84),
+		Position = UDim2.fromOffset(0, 106),
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
-	if result.critter then
-		local sp = Critters.Species[result.critter]
-		Style.Label(revealCard, "A " .. sp.name .. " was sleeping inside! It joined your crew.", 17, {
+	for i, line in ipairs(extras) do
+		Style.Label(revealCard, line.text, 16, {
 			heading = true,
-			Position = UDim2.fromOffset(0, 112),
-			Size = UDim2.new(1, 0, 0, 44),
-			TextWrapped = true,
+			Position = UDim2.fromOffset(0, 134 + (i - 1) * LINE),
+			Size = UDim2.new(1, 0, 0, LINE - 2),
 			TextXAlignment = Enum.TextXAlignment.Center,
-			TextColor3 = Critters.RarityColors[sp.rarity],
+			TextColor3 = line.color,
 		})
 	end
 	local ok = Style.Button(revealCard, "Nice!", C.Green, UDim2.fromOffset(160, 46), function()

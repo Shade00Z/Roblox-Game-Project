@@ -43,13 +43,39 @@ function Formulas.HeatFactor(critterHeat: number, stratumHeat: number): number
 	return math.clamp(critterHeat / stratumHeat, Economy.HeatFloor, 1)
 end
 
+-- How much a critter's stars multiply its Dig, Luck and Heat (0 stars = 1x)
+function Formulas.StarMultiplier(stars: number?): number
+	return Economy.Merge.StatPerStar ^ math.clamp(stars or 0, 0, Economy.Merge.MaxStars)
+end
+
+-- A crew member can be a species id ("pebblemole") or { species = id, stars = n }
+local function memberInfo(member)
+	if type(member) == "string" then
+		return Critters.Species[member], 1
+	end
+	return Critters.Species[member.species], Formulas.StarMultiplier(member.stars)
+end
+
+-- One critter's stats with its stars applied
+function Formulas.CritterStats(species: string, stars: number?): { dig: number, luck: number, heat: number }
+	local sp = Critters.Species[species]
+	local m = Formulas.StarMultiplier(stars)
+	return { dig = sp.dig * m, luck = sp.luck * m, heat = sp.heat * m }
+end
+
+-- Coins for selling a critter
+function Formulas.CritterSellValue(species: string, stars: number?): number
+	local sp = Critters.Species[species]
+	return (Economy.CritterSellValue[sp.rarity] or 0) * 2 ^ (stars or 0)
+end
+
 -- Sum of crew luck (0.1 = +10%)
-function Formulas.CrewLuck(speciesIds: { string }): number
+function Formulas.CrewLuck(members: { any }): number
 	local luck = 0
-	for _, id in ipairs(speciesIds) do
-		local sp = Critters.Species[id]
+	for _, member in ipairs(members) do
+		local sp, mult = memberInfo(member)
 		if sp then
-			luck += sp.luck
+			luck += sp.luck * mult
 		end
 	end
 	return luck
@@ -58,17 +84,20 @@ end
 -- Dig rate in meters per minute for this crew in a stratum.
 -- Includes the bit multiplier, stratum hardness, Core Shard bonus, and the slowdown
 -- for rock that's too tough for your bit (when bitTier is given).
-function Formulas.DigRate(speciesIds: { string }, stratumIndex: number, bitMult: number, coreShards: number, bitTier: number?): number
+-- boosts (optional): totals from the gem stand, see Formulas.GemBoosts
+function Formulas.DigRate(members: { any }, stratumIndex: number, bitMult: number, coreShards: number, bitTier: number?, boosts: any?): number
 	local stratum = Strata[stratumIndex]
+	local extraHeat = boosts and boosts.heat or 0
 	local crewDig = 0
-	for _, id in ipairs(speciesIds) do
-		local sp = Critters.Species[id]
+	for _, member in ipairs(members) do
+		local sp, mult = memberInfo(member)
 		if sp then
-			crewDig += sp.dig * Formulas.HeatFactor(sp.heat, stratum.heat)
+			crewDig += sp.dig * mult * Formulas.HeatFactor(sp.heat * mult + extraHeat, stratum.heat)
 		end
 	end
 	local tough = bitTier and Formulas.ToughRockFactor(bitTier, stratumIndex) or 1
-	return crewDig * bitMult * stratum.hardness * (1 + 0.1 * coreShards) * tough
+	local gemDig = 1 + (boosts and boosts.dig or 0)
+	return crewDig * bitMult * stratum.hardness * (1 + 0.1 * coreShards) * tough * gemDig
 end
 
 -- Ore drop weights for a stratum, with luck boosting the rarer tiers
@@ -165,16 +194,6 @@ function Formulas.CartValue(cart: { [string]: number }): number
 	return v
 end
 
-function Formulas.GemsValue(gems: { [string]: number }): number
-	local v = 0
-	for id, n in pairs(gems) do
-		local gem = OreConfig.Gems[id]
-		if gem then
-			v += gem.value * n
-		end
-	end
-	return v
-end
 
 -- "2h 13m", "45m", "30s"
 function Formulas.FormatDuration(seconds: number): string
@@ -198,6 +217,63 @@ function Formulas.FormatNumber(n: number): string
 		formatted = formatted:sub(2)
 	end
 	return formatted
+end
+
+----------------------------------------------------------------------
+-- Gem stand boosts
+----------------------------------------------------------------------
+
+Formulas.BoostNames = {
+	dig = "Dig speed",
+	heat = "Heat",
+	luck = "Luck",
+	ore = "Ore value",
+	geode = "Geode finds",
+}
+
+-- One gem's boost: (kind, amount). Percent kinds are fractions (0.04 = +4%);
+-- heat is a flat amount added to every crew critter's Heat.
+function Formulas.GemBoost(gemId: string, flawless: boolean?): (string?, number)
+	local gem = OreConfig.Gems[gemId]
+	if not gem then
+		return nil, 0
+	end
+	local base = Economy.GemBoostBase[gem.rarity]
+	local amount = (gem.boost == "heat" and base.heat or base.pct) * (10 / gem.weight) ^ Economy.GemRarityBonusPower
+	if flawless then
+		amount *= Economy.FlawlessBoostMult
+	end
+	if gem.boost == "heat" then
+		amount = math.floor(amount * 10 + 0.5) / 10 -- tenths of Heat
+	else
+		amount = math.floor(amount * 200 + 0.5) / 200 -- half-percent steps
+	end
+	return gem.boost, amount
+end
+
+-- Totals for a set of equipped gems: { dig, heat, luck, ore, geode }
+function Formulas.GemBoosts(equipped: { string }?, flawless: { [string]: boolean }?)
+	local totals = { dig = 0, heat = 0, luck = 0, ore = 0, geode = 0 }
+	for _, id in ipairs(equipped or {}) do
+		local kind, amount = Formulas.GemBoost(id, flawless and flawless[id])
+		if kind then
+			totals[kind] += amount
+		end
+	end
+	return totals
+end
+
+-- "+4% Dig speed", "+1.5 Heat"
+function Formulas.FormatBoost(kind: string, amount: number, short: boolean?): string
+	local name = Formulas.BoostNames[kind] or kind
+	if short then
+		name = ({ dig = "Dig", heat = "Heat", luck = "Luck", ore = "Ore", geode = "Geodes" })[kind] or name
+	end
+	if kind == "heat" then
+		return string.format("+%s %s", (amount == math.floor(amount)) and tostring(math.floor(amount)) or string.format("%.1f", amount), name)
+	end
+	local pct = amount * 100
+	return string.format(pct == math.floor(pct) and "+%d%% %s" or "+%.1f%% %s", pct == math.floor(pct) and math.floor(pct) or pct, name)
 end
 
 return Formulas

@@ -51,7 +51,8 @@ function ShopService.Sell(player: Player)
 	if not data then
 		return
 	end
-	local value = Formulas.CartValue(data.cart) + Formulas.GemsValue(data.gems)
+	-- gem stand Ore value boosts the ore, not the gems (they're already priced)
+	local value = math.floor(Formulas.CartValue(data.cart) * (1 + ShaftService.Boosts(data).ore)) + data.gemCoins
 	if value <= 0 then
 		ShaftService.Notify(player, "Nothing to sell yet. Your crew is still digging!")
 		return
@@ -59,7 +60,7 @@ function ShopService.Sell(player: Player)
 	data.coins += value
 	data.cart = {}
 	data.cartCount = 0
-	data.gems = {}
+	data.gemCoins = 0
 	ShaftService.Notify(player, "Sold for " .. Formulas.FormatNumber(value) .. " coins!")
 	ShaftService.PushState(player)
 end

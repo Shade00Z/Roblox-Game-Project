@@ -282,7 +282,7 @@ end
 -- Critter stand-ins working the real blocks (real models come later)
 ----------------------------------------------------------------------
 
-local function makeDoll(speciesId: string): Model
+local function makeDoll(speciesId: string, stars: number): Model
 	local sp = Critters.Species[speciesId]
 	local m = Instance.new("Model")
 	m.Name = speciesId
@@ -309,6 +309,27 @@ local function makeDoll(speciesId: string): Model
 	local ring = piece("Aura", Enum.PartType.Cylinder, Vector3.new(0.15, 3, 3), Critters.RarityColors[sp.rarity], CFrame.new(0, -1.2, 0) * CFrame.Angles(0, 0, math.rad(90)))
 	ring.Material = Enum.Material.Neon
 	ring.Transparency = 0.3
+	-- merged critters show their stars overhead
+	if stars > 0 then
+		local tag = Instance.new("BillboardGui")
+		tag.Name = "Stars"
+		tag.Size = UDim2.new(1.5 * stars, 0, 1.8, 0) -- studs, so it scales with the camera
+		tag.StudsOffset = Vector3.new(0, 3.3, 0)
+		tag.LightInfluence = 0
+		tag.MaxDistance = 120
+		tag.Adornee = m.Body
+		local text = Instance.new("TextLabel")
+		text.BackgroundTransparency = 1
+		text.Size = UDim2.fromScale(1, 1)
+		text.Text = string.rep("★", stars)
+		text.TextScaled = true
+		text.TextColor3 = Color3.fromHex("FFC233")
+		text.TextStrokeColor3 = Color3.fromHex("4A2E1A")
+		text.TextStrokeTransparency = 0
+		text.Font = Enum.Font.FredokaOne
+		text.Parent = tag
+		tag.Parent = m.Body
+	end
 	m.Parent = fxFolder
 	return m
 end
@@ -316,13 +337,17 @@ end
 local function rebuildDolls(state)
 	local byId = {}
 	for _, c in ipairs(state.critters) do
-		byId[c.id] = c.species
+		byId[c.id] = c
 	end
-	local species = {}
+	local members, parts = {}, {}
 	for _, id in ipairs(state.crew) do
-		table.insert(species, byId[id])
+		local c = byId[id]
+		if c then
+			table.insert(members, c)
+			table.insert(parts, c.species .. "*" .. (c.stars or 0))
+		end
 	end
-	local sig = table.concat(species, ",") .. tostring(room)
+	local sig = table.concat(parts, ",") .. tostring(room)
 	if sig == dollSignature then
 		return
 	end
@@ -334,8 +359,8 @@ local function rebuildDolls(state)
 	if not inShaft then
 		return
 	end
-	for _, id in ipairs(species) do
-		table.insert(dolls, makeDoll(id))
+	for _, c in ipairs(members) do
+		table.insert(dolls, makeDoll(c.species, c.stars or 0))
 	end
 end
 

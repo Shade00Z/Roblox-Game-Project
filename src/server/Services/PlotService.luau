@@ -4,11 +4,14 @@
 
 local Players = game:GetService("Players")
 local ServerStorage = game:GetService("ServerStorage")
+local CollectionService = game:GetService("CollectionService")
 
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Strata = require(Shared.Config.Strata)
+local OreConfig = require(Shared.Config.Ores)
 local Formulas = require(Shared.Formulas)
 local Remotes = require(Shared.Remotes)
+local Economy = require(Shared.Config.Economy)
 
 local PlayerData = require(script.Parent.PlayerData)
 
@@ -164,6 +167,110 @@ local function releasePlot(player: Player)
 	end
 end
 
+----------------------------------------------------------------------
+-- Gem stand: the owner's equipped gems orbit the pedestal in front of the plot,
+-- with their total boosts on a little sign. Players' devices animate the orbit
+-- (Controllers/Showcase); the server just places the gems.
+----------------------------------------------------------------------
+
+local showcaseSignatures: { [number]: string } = {}
+
+local function updateShowcase(index: number)
+	local plot = PlotService.GetPlot(index)
+	local pedestal = plot and plot:FindFirstChild("Pedestal")
+	local base = pedestal and pedestal:FindFirstChild("Base")
+	if not base then
+		return
+	end
+	local owner = owners[index]
+	local data = owner and PlayerData.Get(owner)
+	local equipped = data and data.equippedGems or {}
+	local flawless = data and data.gemFlawless or {}
+
+	local parts = {}
+	for _, id in ipairs(equipped) do
+		table.insert(parts, id .. (flawless[id] and "*" or ""))
+	end
+	local sig = table.concat(parts, ",")
+	if showcaseSignatures[index] == sig then
+		return
+	end
+	showcaseSignatures[index] = sig
+
+	local old = pedestal:FindFirstChild("Showcase")
+	if old then
+		old:Destroy()
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Showcase"
+	local center = base.Position + Vector3.new(0, 5, 0)
+	for slot, id in ipairs(equipped) do
+		local gem = OreConfig.Gems[id]
+		if gem then
+			local p = Instance.new("Part")
+			p.Name = "Gem" .. slot
+			p.Size = Vector3.new(1.8, 1.8, 1.8)
+			p.Color = gem.color
+			p.Material = Enum.Material.Neon
+			p.Transparency = flawless[id] and 0 or 0.2
+			if flawless[id] then
+				local sparkle = Instance.new("Sparkles") -- Flawless gems glitter
+				sparkle.SparkleColor = Color3.fromHex("FFD166")
+				sparkle.Parent = p
+			end
+			p.Anchored = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.CastShadow = false
+			local angle = (slot - 1) / Economy.GemSlots * math.pi * 2
+			p.CFrame = CFrame.new(center + Vector3.new(math.cos(angle) * 3, 0, math.sin(angle) * 3))
+				* CFrame.Angles(math.rad(45), 0, math.rad(45))
+			p:SetAttribute("Center", center)
+			p:SetAttribute("Slot", slot)
+			p:SetAttribute("Slots", Economy.GemSlots)
+			CollectionService:AddTag(p, "ShowcaseGem")
+			p.Parent = folder
+		end
+	end
+	-- what the stand gives, for anyone walking past
+	if #equipped > 0 then
+		local boosts = Formulas.GemBoosts(equipped, flawless)
+		local lines = {}
+		for _, kind in ipairs({ "dig", "heat", "luck", "ore", "geode" }) do
+			if boosts[kind] > 0 then
+				table.insert(lines, Formulas.FormatBoost(kind, boosts[kind], true))
+			end
+		end
+		local sign = Instance.new("BillboardGui")
+		sign.Name = "StandSign"
+		sign.Size = UDim2.fromOffset(320, 38)
+		sign.StudsOffsetWorldSpace = center + Vector3.new(0, 2.6, 0) - base.Position
+		sign.MaxDistance = 70
+		sign.LightInfluence = 0
+		sign.Adornee = base
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Size = UDim2.fromScale(1, 1)
+		label.Text = table.concat(lines, "  ·  ")
+		label.TextScaled = true
+		label.Font = Enum.Font.FredokaOne
+		label.TextColor3 = Color3.fromHex("FFF6E5")
+		label.TextStrokeColor3 = Color3.fromHex("4A2E1A")
+		label.TextStrokeTransparency = 0
+		label.Parent = sign
+		sign.Parent = folder
+	end
+	folder.Parent = pedestal
+end
+
+function PlotService.RefreshShowcase(player: Player)
+	local index = player:GetAttribute("PlotIndex")
+	if index and owners[index] == player then
+		updateShowcase(index)
+	end
+end
+
 -- Move each owned plot's glowing depth marker and nameplate to match the owner's depth
 local function refreshPlots()
 	for i = 1, PLOT_COUNT do
@@ -190,6 +297,7 @@ local function refreshPlots()
 				setLabel(plot.Headframe.Nameplate, string.format("%s  ·  %s m", owner.DisplayName, Formulas.FormatNumber(depth)))
 			end
 		end
+		updateShowcase(i)
 	end
 end
 

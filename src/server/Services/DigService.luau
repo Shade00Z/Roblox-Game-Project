@@ -70,12 +70,13 @@ local function reward(player: Player, data, cell)
 		})
 	elseif cell.kind == "geode" then
 		if #data.geodes < Economy.RackSlots then
-			local luck = Formulas.CrewLuck(ShaftService.CrewSpecies(data)) + Economy.Dig.BuriedGeodeLuck
+			local luck = Formulas.CrewLuck(ShaftService.CrewMembers(data)) + ShaftService.Boosts(data).luck + Economy.Dig.BuriedGeodeLuck
 			local rarity = Formulas.RollGeodeRarity(rng, luck)
 			local now = os.time()
 			table.insert(data.geodes, {
 				id = ShaftService.NewId(data, "g"),
 				rarity = rarity,
+				stratum = cell.stratum, -- the layer decides what's inside
 				foundAt = now,
 				maturesAt = now + Formulas.GeodeMatureSeconds(rarity),
 			})

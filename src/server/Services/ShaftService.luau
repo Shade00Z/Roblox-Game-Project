@@ -29,15 +29,18 @@ local cartFullNotified: { [Player]: number } = {}
 -- Helpers
 ----------------------------------------------------------------------
 
-function ShaftService.CrewSpecies(data): { string }
+-- The critters on your crew, in crew order: { { species = id, stars = n }, ... }
+-- (stars make a critter dig faster, see Formulas.StarMultiplier)
+function ShaftService.CrewMembers(data): { any }
 	local byId = {}
 	for _, c in ipairs(data.critters) do
-		byId[c.id] = c.species
+		byId[c.id] = c
 	end
 	local list = {}
 	for _, id in ipairs(data.crew) do
-		if byId[id] then
-			table.insert(list, byId[id])
+		local c = byId[id]
+		if c then
+			table.insert(list, { species = c.species, stars = c.stars or 0 })
 		end
 	end
 	return list
@@ -54,6 +57,11 @@ local function cartCapacity(data): number
 end
 
 -- Adds ore to the cart, never past capacity. Returns how many units fit.
+-- Totals from the gem stand: { dig, heat, luck, ore, geode }
+function ShaftService.Boosts(data)
+	return Formulas.GemBoosts(data.equippedGems, data.gemFlawless)
+end
+
 function ShaftService.AddOre(data, ore: { [string]: number }): number
 	local room = cartCapacity(data) - data.cartCount
 	local added = 0
@@ -84,8 +92,9 @@ local function advanceDepth(data, now: number, summary)
 		return
 	end
 
-	local species = ShaftService.CrewSpecies(data)
-	local luck = Formulas.CrewLuck(species)
+	local species = ShaftService.CrewMembers(data)
+	local boosts = ShaftService.Boosts(data)
+	local luck = Formulas.CrewLuck(species) + boosts.luck
 	local bit = Economy.Bits[data.bitLevel]
 	local capacity = cartCapacity(data)
 
@@ -100,7 +109,7 @@ local function advanceDepth(data, now: number, summary)
 		local full = data.cartCount >= capacity
 
 		-- includes the slowdown when this rock is too tough for your bit
-		local rate = Formulas.DigRate(species, si, bit.mult, data.coreShards, bit.tier) / 60 -- meters per second
+		local rate = Formulas.DigRate(species, si, bit.mult, data.coreShards, bit.tier, boosts) / 60 -- meters per second
 		if boosted then
 			rate *= Economy.BoostMultiplier
 		end
@@ -142,7 +151,7 @@ local function advanceDepth(data, now: number, summary)
 		end
 
 		-- geodes: expected count, with random rounding
-		local expected = meters * Economy.GeodeChancePerMeter * (1 + luck)
+		local expected = meters * Economy.GeodeChancePerMeter * (1 + luck) * (1 + boosts.geode)
 		local count = math.floor(expected)
 		if rng:NextNumber() < expected - count then
 			count += 1
@@ -156,6 +165,7 @@ local function advanceDepth(data, now: number, summary)
 			table.insert(data.geodes, {
 				id = ShaftService.NewId(data, "g"),
 				rarity = rarity,
+				stratum = si, -- the layer decides what's inside
 				foundAt = foundAt,
 				maturesAt = foundAt + Formulas.GeodeMatureSeconds(rarity),
 			})
@@ -184,7 +194,7 @@ end
 -- Keep the visible dig front in step with depth (see DigFront.Sync).
 -- Returns how many rows broke through.
 function ShaftService.SyncFront(data): number
-	return DigFront.Sync(data, math.huge, #ShaftService.CrewSpecies(data))
+	return DigFront.Sync(data, math.huge, #ShaftService.CrewMembers(data))
 end
 
 local function advance(data, now: number, summary)
@@ -219,7 +229,8 @@ end
 function ShaftService.BuildState(data)
 	local now = os.time()
 	local si = Formulas.StratumIndexAt(data.depth)
-	local species = ShaftService.CrewSpecies(data)
+	local species = ShaftService.CrewMembers(data)
+	local boosts = ShaftService.Boosts(data)
 	local bit = Economy.Bits[data.bitLevel]
 	local nextBit = Economy.Bits[data.bitLevel + 1]
 	local nextCart = Economy.Carts[data.cartLevel + 1]
@@ -230,13 +241,15 @@ function ShaftService.BuildState(data)
 		stratum = si,
 		fullSpeedTo = Formulas.FullSpeedDepth(bit.tier), -- deeper than this is tough rock
 		toughRock = Formulas.TiersShort(bit.tier, si), -- bit tiers short for this stratum
-		digRate = Formulas.DigRate(species, si, bit.mult, data.coreShards, bit.tier),
+		digRate = Formulas.DigRate(species, si, bit.mult, data.coreShards, bit.tier, boosts),
 		boostUntil = data.boostUntil,
 		cartCount = data.cartCount,
 		cartCapacity = cartCapacity(data),
-		cartValue = Formulas.CartValue(data.cart),
-		gems = data.gems,
-		gemsValue = Formulas.GemsValue(data.gems),
+		cartValue = math.floor(Formulas.CartValue(data.cart) * (1 + boosts.ore)),
+		gemBoosts = boosts,
+		equippedGems = data.equippedGems,
+		gemSlots = Economy.GemSlots,
+		gemsValue = data.gemCoins,
 		bitLevel = data.bitLevel,
 		cartLevel = data.cartLevel,
 		pickaxeLevel = data.pickaxeLevel,
@@ -283,6 +296,7 @@ local function catchUp(player: Player, data, minSeconds: number)
 		for id, n in pairs(summary.oreById) do
 			oreValue += (Ores[id] and Ores[id].value or 0) * n
 		end
+		oreValue = math.floor(oreValue * (1 + ShaftService.Boosts(data).ore))
 		Remotes.AwaySummary:FireClient(player, {
 			seconds = away,
 			meters = data.depth - depthBefore,
@@ -306,6 +320,7 @@ local function setUpNewPlayer(data)
 	table.insert(data.geodes, {
 		id = ShaftService.NewId(data, "g"),
 		rarity = "Common",
+		stratum = 1,
 		foundAt = now - 3600,
 		maturesAt = now,
 	})
@@ -349,7 +364,7 @@ local function onVeinTapped(player: Player, plotIndex: number, vein: BasePart)
 
 	-- reward: a little ore plus a dig-speed burst
 	local si = Formulas.StratumIndexAt(data.depth)
-	local luck = Formulas.CrewLuck(ShaftService.CrewSpecies(data))
+	local luck = Formulas.CrewLuck(ShaftService.CrewMembers(data)) + ShaftService.Boosts(data).luck
 	local weights = Formulas.OreWeights(si, luck)
 	local ore = {}
 	for _ = 1, Economy.VeinOre do

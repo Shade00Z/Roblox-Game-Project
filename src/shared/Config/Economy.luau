@@ -7,7 +7,7 @@ local Economy = {}
 -- Digging
 Economy.OrePerMeter = 1 -- ore units produced per meter dug
 Economy.CartFullDigFactor = 0.1 -- when the cart is full, depth still creeps at this fraction
-Economy.HeatFloor = 0.2 -- a critter with no Heat still digs at this fraction in hot strata
+Economy.HeatFloor = 0.35 -- a critter with no Heat still digs at this fraction in hot strata
 Economy.CrewSlots = 3
 
 -- Vein taps (active play)
@@ -46,9 +46,47 @@ Economy.GeodeRarities = {
 	{ name = "Epic", weight = 7, matureSeconds = 12 * 3600 },
 	{ name = "Legendary", weight = 1, matureSeconds = 24 * 3600 },
 }
-Economy.CrackCritterChance = 0.15 -- chance a geode also holds a critter
-Economy.CrackCritterPool = { "pebblemole", "rustbeetle" } -- Phase 1 pool; eggs replace this in Phase 2
 Economy.FirstCrackCritter = "rustbeetle" -- the first geode ever cracked always holds this critter
+
+-- A geode's gem is worth this many of the average ore from the layer it was found in
+Economy.GeodeOreWorth = { Common = 8, Rare = 30, Epic = 120, Legendary = 500 }
+
+-- 5% of cracks are Flawless: worth this many times more and marked in the Gem Book
+Economy.FlawlessChance = 0.05
+Economy.FlawlessMult = 3
+
+-- Gem Book rewards (Core Shards, given once): finishing a tier (all Common gems,
+-- all Rare gems...), and finishing all 50
+Economy.GemSetShards = 1
+Economy.GemBookCompleteShards = 3
+
+-- Gem stand: equip up to GemSlots gems you have found; each gives one boost.
+--   dig:   crew dig speed (%)        heat:  Heat added to every crew critter
+--   luck:  added to crew Luck (%)    ore:   ore sells for more (%)
+--   geode: crew finds more geodes (%)
+-- Size: the tier's base, a little more for gems that are rarer inside their tier
+-- (x (10 / weight) ^ GemRarityBonusPower), and x FlawlessBoostMult once you have
+-- found a Flawless one of that gem.
+Economy.GemSlots = 3
+Economy.GemBoostBase = {
+	Common = { pct = 0.04, heat = 0.4 },
+	Rare = { pct = 0.08, heat = 0.8 },
+	Epic = { pct = 0.15, heat = 1.5 },
+	Legendary = { pct = 0.25, heat = 2.5 },
+}
+Economy.GemRarityBonusPower = 0.25
+Economy.FlawlessBoostMult = 1.5
+
+-- Bonus loot rolled on every crack, by geode rarity:
+--   critter: chance a critter from that layer's egg pool was sleeping inside
+--   shard:   chance of a Core Shard (+10% dig speed forever)
+--   pouch:   chance of a pouch of that layer's ore, sold on the spot; pouchOre = min, max
+Economy.GeodeExtras = {
+	Common = { critter = 0.05, shard = 0, pouch = 0.25, pouchOre = { 4, 8 } },
+	Rare = { critter = 0.12, shard = 0, pouch = 0.4, pouchOre = { 10, 20 } },
+	Epic = { critter = 0.25, shard = 0.25, pouch = 0.6, pouchOre = { 30, 50 } },
+	Legendary = { critter = 0.5, shard = 1, pouch = 1, pouchOre = { 100, 150 } },
+}
 
 -- Digging yourself: your pickaxe vs. block hardness (Strata.blockHp)
 -- hits per block = ceil(blockHp / power); swing = seconds between hits
@@ -82,6 +120,22 @@ Economy.Dig = {
 		{ { "basaltbadger", 35 }, { "embersalamander", 50 }, { "geodegolem", 15 } },
 		{ { "embersalamander", 60 }, { "geodegolem", 40 } },
 	},
+}
+
+-- Merging: two of the same critter at the same star level make one a star higher
+Economy.Merge = {
+	MaxStars = 5,
+	StatPerStar = 1.35, -- Dig, Luck and Heat are multiplied by this for every star
+}
+
+-- Selling a critter (bench only): base value by rarity, doubled for every star
+-- (so a merged critter is worth exactly what its copies were)
+Economy.CritterSellValue = {
+	Common = 50,
+	Uncommon = 150,
+	Rare = 600,
+	Epic = 2500,
+	Legendary = 12000,
 }
 
 -- Tough rock: for each bit tier you're short of a stratum's bitTier...

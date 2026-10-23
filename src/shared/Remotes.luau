@@ -29,8 +29,13 @@ local DEFINITIONS = {
 	RequestUpgrade = "RemoteFunction", -- ("bit" | "cart")
 	CrackGeode = "RemoteFunction", -- (geodeId)
 	SetCrew = "RemoteFunction", -- (critterId, assign: boolean)
+	MergeCritters = "RemoteFunction", -- (critterIdA, critterIdB)
+	MergeAll = "RemoteFunction", -- () merge every pair possible
+	SellCritter = "RemoteFunction", -- (critterId) bench critters only
+	ToggleLock = "RemoteFunction", -- (critterId)
 	BuyEgg = "RemoteFunction", -- (eggId) at the Hatchery
 	HatchEgg = "RemoteFunction", -- (incubatorId) at the Hatchery
+	SetGemSlot = "RemoteFunction", -- (slot, gemId or nil) the gem stand
 
 	-- Studio-only testing helper (ignored on live servers)
 	DebugSkipTime = "RemoteEvent", -- (seconds)
@@ -72,7 +77,12 @@ return Remotes :: {
 	RequestUpgrade: RemoteFunction,
 	CrackGeode: RemoteFunction,
 	SetCrew: RemoteFunction,
+	MergeCritters: RemoteFunction,
+	MergeAll: RemoteFunction,
+	SellCritter: RemoteFunction,
+	ToggleLock: RemoteFunction,
 	BuyEgg: RemoteFunction,
 	HatchEgg: RemoteFunction,
+	SetGemSlot: RemoteFunction,
 	DebugSkipTime: RemoteEvent,
 }
