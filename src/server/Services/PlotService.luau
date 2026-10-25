@@ -223,12 +223,13 @@ local function updateShowcase(index: number)
 			p.CanQuery = false
 			p.CanTouch = false
 			p.CastShadow = false
-			local angle = (slot - 1) / Economy.GemSlots * math.pi * 2
+			local slots = math.max(#equipped, Economy.GemSlots)
+			local angle = (slot - 1) / slots * math.pi * 2
 			p.CFrame = CFrame.new(center + Vector3.new(math.cos(angle) * 3, 0, math.sin(angle) * 3))
 				* CFrame.Angles(math.rad(45), 0, math.rad(45))
 			p:SetAttribute("Center", center)
 			p:SetAttribute("Slot", slot)
-			p:SetAttribute("Slots", Economy.GemSlots)
+			p:SetAttribute("Slots", slots)
 			CollectionService:AddTag(p, "ShowcaseGem")
 			p.Parent = folder
 		end
@@ -271,6 +272,61 @@ function PlotService.RefreshShowcase(player: Player)
 	end
 end
 
+-- A big pink "REBIRTH 2" sign floating over the headframe, for everyone to see
+local rebirthSigns: { [number]: number } = {}
+local function updateRebirthSign(index: number, rebirths: number)
+	if rebirthSigns[index] == rebirths then
+		return
+	end
+	rebirthSigns[index] = rebirths
+	local plot = PlotService.GetPlot(index)
+	local headframe = plot and plot:FindFirstChild("Headframe")
+	local wheel = headframe and headframe:FindFirstChild("Wheel")
+	if not wheel then
+		return
+	end
+	local old = headframe:FindFirstChild("RebirthSign")
+	if old then
+		old:Destroy()
+	end
+	if rebirths <= 0 then
+		return
+	end
+	local sign = Instance.new("BillboardGui")
+	sign.Name = "RebirthSign"
+	sign.Adornee = wheel
+	sign.Size = UDim2.fromOffset(240, 56)
+	sign.StudsOffset = Vector3.new(0, 7.5, 0)
+	sign.MaxDistance = 220
+	sign.LightInfluence = 0
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.fromScale(1, 1)
+	bg.BackgroundColor3 = Color3.fromHex("E0479E")
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 14)
+	corner.Parent = bg
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 3
+	stroke.Color = Color3.fromHex("4A2E1A")
+	stroke.Parent = bg
+	bg.Parent = sign
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.Text = "REBIRTH " .. rebirths
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.TextColor3 = Color3.fromHex("FFF6E5")
+	label.TextStrokeColor3 = Color3.fromHex("4A2E1A")
+	label.TextStrokeTransparency = 0
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 6)
+	pad.PaddingBottom = UDim.new(0, 6)
+	pad.Parent = label
+	label.Parent = bg
+	sign.Parent = headframe
+end
+
 -- Move each owned plot's glowing depth marker and nameplate to match the owner's depth
 local function refreshPlots()
 	for i = 1, PLOT_COUNT do
@@ -298,6 +354,7 @@ local function refreshPlots()
 			end
 		end
 		updateShowcase(i)
+		updateRebirthSign(i, owner and data and data.rebirths or 0)
 	end
 end
 

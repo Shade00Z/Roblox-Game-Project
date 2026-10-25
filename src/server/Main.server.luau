@@ -13,6 +13,7 @@ local ORDER = {
 	"EggService",
 	"GeodeService",
 	"ShopService",
+	"RebirthService",
 	"MovementService",
 	-- Phase 2+: "EventService", "SocialService", "QuestService", "Analytics"
 }

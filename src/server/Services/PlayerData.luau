@@ -59,6 +59,28 @@ function PlayerData.Get(player: Player)
 	return profile and profile.Data or nil
 end
 
+-- Studio testing only: wipe a save back to a brand-new player, in place.
+local function deepCopy(t)
+	local c = {}
+	for k, v in pairs(t) do
+		c[k] = type(v) == "table" and deepCopy(v) or v
+	end
+	return c
+end
+function PlayerData.ResetForTesting(player: Player)
+	local data = PlayerData.Get(player)
+	if not data then
+		return nil
+	end
+	for k in pairs(data) do
+		data[k] = nil
+	end
+	for k, v in pairs(deepCopy(TEMPLATE)) do
+		data[k] = v
+	end
+	return data
+end
+
 -- fn(player, data, isNewPlayer)
 function PlayerData.OnLoaded(fn)
 	table.insert(loadedCallbacks, fn)

@@ -86,11 +86,12 @@ local function buyEgg(player: Player, eggId: any)
 	if #data.incubators >= Eggs.IncubatorSlots then
 		return { ok = false, message = "All your incubators are full. Hatch an egg first!" }
 	end
-	if data.coins < egg.price then
-		return { ok = false, message = "You need " .. Formulas.FormatNumber(egg.price - data.coins) .. " more coins." }
+	local price = Formulas.Price(egg.price, data.rebirths) -- prices climb with every rebirth
+	if data.coins < price then
+		return { ok = false, message = "You need " .. Formulas.FormatNumber(price - data.coins) .. " more coins." }
 	end
 
-	data.coins -= egg.price
+	data.coins -= price
 	data.eggShop.bought[egg.id] = (data.eggShop.bought[egg.id] or 0) + 1
 	table.insert(data.incubators, {
 		id = ShaftService.NewId(data, "e"),

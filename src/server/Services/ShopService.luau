@@ -84,11 +84,12 @@ local function requestUpgrade(player: Player, kind: any)
 	if not nextItem then
 		return { ok = false, message = "Already maxed out!" }
 	end
-	if data.coins < nextItem.cost then
-		return { ok = false, message = "You need " .. Formulas.FormatNumber(nextItem.cost - data.coins) .. " more coins." }
+	local cost = Formulas.Price(nextItem.cost, data.rebirths) -- prices climb with every rebirth
+	if data.coins < cost then
+		return { ok = false, message = "You need " .. Formulas.FormatNumber(cost - data.coins) .. " more coins." }
 	end
 
-	data.coins -= nextItem.cost
+	data.coins -= cost
 	data[field] += 1
 
 	local message

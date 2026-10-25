@@ -125,14 +125,19 @@ local function crack(player: Player, geodeId: any)
 	table.remove(data.geodes, index)
 	data.cracks += 1
 
-	-- geodes from before layers were tracked count as your current layer
-	local si = geode.stratum or Formulas.StratumIndexAt(data.depth)
+	-- A geode pays out (gem price, ore pouch, which critters) for the shallower of the
+	-- layer it was found in and the layer you're in now. In normal play that's where you
+	-- found it; after a rebirth, geodes kept from deep down pay what your new depth pays,
+	-- so they can't skip the early game. Geodes from before layers were tracked count as
+	-- your current layer.
+	local here = Formulas.StratumIndexAt(data.depth)
+	local si = math.min(geode.stratum or here, here)
 	local extras = Economy.GeodeExtras[geode.rarity] or Economy.GeodeExtras.Common
 
 	-- which gem, and what it's worth here (set now, paid at the Assay Office)
 	local gemId = OreConfig.RollGem(geode.rarity, rng)
 	local flawless = rng:NextNumber() < Economy.FlawlessChance
-	local gemValue = OreConfig.GemValue(geode.rarity, si, flawless)
+	local gemValue = OreConfig.GemValue(geode.rarity, si, flawless, data.rebirths)
 	data.gemCoins += gemValue
 
 	-- the Gem Book: first finds, Flawless finds, and rewards for finished pages
@@ -211,7 +216,7 @@ end
 -- The gem stand: put a gem you've found into a slot (or nil to take it out).
 -- Slots fill left to right; taking one out slides the rest along.
 local function setGemSlot(player: Player, slot: any, gemId: any)
-	if type(slot) ~= "number" or slot ~= slot // 1 or slot < 1 or slot > Economy.GemSlots then
+	if type(slot) ~= "number" or slot ~= slot // 1 or slot < 1 or slot > Formulas.GemSlots(math.huge) then
 		return { ok = false }
 	end
 	if gemId ~= nil and (type(gemId) ~= "string" or not OreConfig.Gems[gemId]) then
@@ -220,6 +225,10 @@ local function setGemSlot(player: Player, slot: any, gemId: any)
 	local data = ShaftService.Update(player) -- settle digging with the old boosts first
 	if not data then
 		return { ok = false }
+	end
+	local slots = Formulas.GemSlots(data.rebirths)
+	if slot > slots then
+		return { ok = false, message = "That stand slot unlocks with a rebirth." }
 	end
 	local list = data.equippedGems
 	if gemId == nil then
@@ -239,7 +248,7 @@ local function setGemSlot(player: Player, slot: any, gemId: any)
 		else
 			table.insert(list, gemId)
 		end
-		while #list > Economy.GemSlots do
+		while #list > slots do
 			table.remove(list)
 		end
 	end

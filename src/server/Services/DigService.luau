@@ -69,7 +69,7 @@ local function reward(player: Player, data, cell)
 			lost = amount - added,
 		})
 	elseif cell.kind == "geode" then
-		if #data.geodes < Economy.RackSlots then
+		if #data.geodes < Formulas.RackSlots(data.rebirths) then
 			local luck = Formulas.CrewLuck(ShaftService.CrewMembers(data)) + ShaftService.Boosts(data).luck + Economy.Dig.BuriedGeodeLuck
 			local rarity = Formulas.RollGeodeRarity(rng, luck)
 			local now = os.time()

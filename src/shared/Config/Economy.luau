@@ -142,6 +142,23 @@ Economy.CritterSellValue = {
 Economy.ToughRockSlowdown = 4 -- ...your crew digs this many times slower
 Economy.ToughRockHits = 2 -- ...and blocks take this many times more pickaxe hits
 
+-- Rebirth: once you're deep enough, start over from the surface for a permanent boost.
+-- Resets depth, coins, the cart, the geode rack and your bit / cart / pickaxe; keeps
+-- critters, eggs, the Gem Book, your gem stand and Core Shards.
+Economy.Rebirth = {
+	BaseDepth = 2500, -- depth needed for the first rebirth (the Core)
+	DepthPerRebirth = 250, -- each rebirth after that needs this much more
+	DigPerRebirth = 0.25, -- +25% crew dig speed for every rebirth (adds up)
+	PriceGrowth = 1.5, -- bits, carts, pickaxes and eggs cost this much more per rebirth (compounds)
+	GemValueGrowth = 1.2, -- gems from geodes sell for this much more per rebirth (compounds)
+	-- extra slots unlocked at a rebirth count, kept for good
+	Unlocks = {
+		[1] = { crewSlots = 1, text = "A 4th crew slot" },
+		[2] = { rackSlots = 1, text = "A 5th geode rack slot" },
+		[3] = { gemSlots = 1, text = "A 4th gem stand slot" },
+	},
+}
+
 -- Interaction ranges (studs) checked on the server
 Economy.ShopRange = 40
 

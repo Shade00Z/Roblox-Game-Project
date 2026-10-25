@@ -249,7 +249,9 @@ function EggShop.Refresh()
 			row.stock.Text = left .. " in stock"
 			row.stock.TextColor3 = C.Muted
 		end
-		row.buy.BackgroundColor3 = (left > 0 and not full and state.coins >= egg.price) and C.Green or C.Disabled
+		local price = Formulas.Price(egg.price, state.rebirths or 0) -- prices climb with every rebirth
+		row.buy.Text = Formulas.FormatNumber(price)
+		row.buy.BackgroundColor3 = (left > 0 and not full and state.coins >= price) and C.Green or C.Disabled
 	end
 
 	for i, slot in ipairs(incubatorSlots) do

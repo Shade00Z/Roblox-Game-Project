@@ -97,7 +97,8 @@ function Formulas.DigRate(members: { any }, stratumIndex: number, bitMult: numbe
 	end
 	local tough = bitTier and Formulas.ToughRockFactor(bitTier, stratumIndex) or 1
 	local gemDig = 1 + (boosts and boosts.dig or 0)
-	return crewDig * bitMult * stratum.hardness * (1 + 0.1 * coreShards) * tough * gemDig
+	local rebirthDig = 1 + (boosts and boosts.rebirth or 0)
+	return crewDig * bitMult * stratum.hardness * (1 + 0.1 * coreShards) * tough * gemDig * rebirthDig
 end
 
 -- Ore drop weights for a stratum, with luck boosting the rarer tiers
@@ -274,6 +275,62 @@ function Formulas.FormatBoost(kind: string, amount: number, short: boolean?): st
 	end
 	local pct = amount * 100
 	return string.format(pct == math.floor(pct) and "+%d%% %s" or "+%.1f%% %s", pct == math.floor(pct) and math.floor(pct) or pct, name)
+end
+
+----------------------------------------------------------------------
+-- Rebirths
+----------------------------------------------------------------------
+
+-- Depth you need to reach to rebirth, having rebirthed `rebirths` times already
+function Formulas.RebirthDepth(rebirths: number): number
+	return Economy.Rebirth.BaseDepth + Economy.Rebirth.DepthPerRebirth * (rebirths or 0)
+end
+
+-- Extra crew dig speed from rebirths (0.25 = +25%)
+function Formulas.RebirthDig(rebirths: number): number
+	return Economy.Rebirth.DigPerRebirth * (rebirths or 0)
+end
+
+-- How much more things cost after this many rebirths
+function Formulas.PriceMult(rebirths: number): number
+	return Economy.Rebirth.PriceGrowth ^ (rebirths or 0)
+end
+
+-- A shop price after rebirths, rounded to three significant figures (1,125,000 -> 1,130,000)
+function Formulas.Price(base: number, rebirths: number): number
+	local v = base * Formulas.PriceMult(rebirths)
+	if v < 1000 then
+		return math.floor(v + 0.5)
+	end
+	local step = 10 ^ (math.floor(math.log10(v)) - 2)
+	return math.floor(v / step + 0.5) * step
+end
+
+local function unlocked(rebirths: number, key: string): number
+	local extra = 0
+	for at, unlock in pairs(Economy.Rebirth.Unlocks) do
+		if (rebirths or 0) >= at and unlock[key] then
+			extra += unlock[key]
+		end
+	end
+	return extra
+end
+
+function Formulas.CrewSlots(rebirths: number): number
+	return Economy.CrewSlots + unlocked(rebirths, "crewSlots")
+end
+
+function Formulas.RackSlots(rebirths: number): number
+	return Economy.RackSlots + unlocked(rebirths, "rackSlots")
+end
+
+function Formulas.GemSlots(rebirths: number): number
+	return Economy.GemSlots + unlocked(rebirths, "gemSlots")
+end
+
+-- The most slots of each kind anyone can have (for building UI once)
+function Formulas.MaxSlots(): (number, number, number)
+	return Formulas.CrewSlots(math.huge), Formulas.RackSlots(math.huge), Formulas.GemSlots(math.huge)
 end
 
 return Formulas

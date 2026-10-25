@@ -174,8 +174,10 @@ end
 -- Coins a gem of this rarity is worth when cracked from this layer. Priced so the
 -- average crack (including the odd Flawless one) is worth GeodeOreWorth ores.
 local averageMult = 1 + Economy.FlawlessChance * (Economy.FlawlessMult - 1)
-local function GemValue(rarity: string, layer: number, flawless: boolean?): number
+-- Rebirths raise it a little too (Economy.Rebirth.GemValueGrowth per rebirth).
+local function GemValue(rarity: string, layer: number, flawless: boolean?, rebirths: number?): number
 	local base = averageOre(clampLayer(layer)) * (Economy.GeodeOreWorth[rarity] or 0) / averageMult
+	base *= Economy.Rebirth.GemValueGrowth ^ (rebirths or 0)
 	return tidy(base * (flawless and Economy.FlawlessMult or 1))
 end
 

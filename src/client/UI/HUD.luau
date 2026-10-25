@@ -20,6 +20,7 @@ local HUD = {}
 
 local player = Players.LocalPlayer
 local gui: ScreenGui
+local overlay: ScreenGui -- toasts, banners and confirm cards: above every other panel
 local state = nil
 local timeOffset = 0 -- serverTime - local os.time()
 local lastStratum = nil
@@ -39,6 +40,20 @@ end
 ----------------------------------------------------------------------
 -- Build
 ----------------------------------------------------------------------
+
+-- pink badge under the coins: which rebirth you're on and what it gives
+local rebirthBadge, rebirthLabel
+local function buildRebirthBadge()
+	rebirthBadge = Style.Panel(gui, "RebirthBadge", UDim2.fromOffset(220, 40), UDim2.fromOffset(16, 80))
+	rebirthBadge.BackgroundColor3 = Color3.fromHex("E0479E")
+	rebirthBadge.Visible = false
+	rebirthLabel = Style.Label(rebirthBadge, "", 18, {
+		heading = true,
+		outlined = true,
+		Size = UDim2.fromScale(1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+end
 
 local function buildCoins()
 	local f = Style.Panel(gui, "Coins", UDim2.fromOffset(220, 56), UDim2.fromOffset(16, 16))
@@ -132,15 +147,17 @@ local function buildRack()
 	rackFrame.BackgroundTransparency = 1
 	rackFrame.AnchorPoint = Vector2.new(0.5, 1)
 	rackFrame.Position = UDim2.new(0.5, 0, 1, -72)
-	rackFrame.Size = UDim2.fromOffset(440, 92)
+	rackFrame.Size = UDim2.fromOffset(560, 92) -- room for slots unlocked by rebirths
 	rackFrame.Parent = gui
 	local layout = Instance.new("UIListLayout")
 	layout.FillDirection = Enum.FillDirection.Horizontal
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.Padding = UDim.new(0, 8)
 	layout.Parent = rackFrame
-	for i = 1, Economy.RackSlots do
+	local _, maxRack = Formulas.MaxSlots()
+	for i = 1, maxRack do
 		local slot = Style.Panel(rackFrame, "Slot" .. i, UDim2.fromOffset(104, 92), UDim2.new())
+		slot.Visible = i <= Economy.RackSlots
 		slot.LayoutOrder = i
 		local title = Style.Label(slot, "Empty", 16, {
 			heading = true,
@@ -252,7 +269,7 @@ local function buildToasts()
 	toastHolder.Position = UDim2.new(0.5, 0, 0, 16)
 	toastHolder.Size = UDim2.fromOffset(480, 300)
 	toastHolder.ZIndex = 40 -- above open panels
-	toastHolder.Parent = gui
+	toastHolder.Parent = overlay
 	local layout = Instance.new("UIListLayout")
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.Padding = UDim.new(0, 6)
@@ -263,12 +280,58 @@ local function buildDevTools()
 	if not RunService:IsStudio() then
 		return
 	end
-	local b = Style.Button(gui, "+1 hour (Studio)", C.Muted, UDim2.fromOffset(180, 40), function()
+	local function devButton(text, row, onClick)
+		local b = Style.Button(gui, text, C.Muted, UDim2.fromOffset(200, 40), onClick)
+		b.Position = UDim2.new(0, 16, 1, -16 - (row - 1) * 48)
+		b.AnchorPoint = Vector2.new(0, 1)
+		b.TextSize = 16
+		return b
+	end
+	devButton("+1 hour (Studio)", 1, function()
 		Remotes.DebugSkipTime:FireServer(3600)
 	end)
-	b.Position = UDim2.new(0, 16, 1, -16)
-	b.AnchorPoint = Vector2.new(0, 1)
-	b.TextSize = 16
+	devButton("Instant rebirth (Studio)", 2, function()
+		HUD.Confirm("Rebirth now?", "Testing only: rebirths you right away, whatever your depth.", "Rebirth", Color3.fromHex("E0479E"), function()
+			local result = Remotes.DebugRebirth:InvokeServer()
+			if result and result.ok then
+				HUD.Banner(string.format("Rebirth %d! +%d%% dig speed", result.rebirths, math.floor(result.digBonus * 100 + 0.5)))
+				if result.unlock then
+					HUD.Toast(result.unlock .. " unlocked!")
+				end
+			end
+		end)
+	end)
+	-- a small picker: which rarity of geode to add
+	local picker = Style.Panel(gui, "GeodePicker", UDim2.fromOffset(456, 64), UDim2.new(0, 224, 1, -160), Vector2.new(0, 1))
+	picker.Visible = false
+	picker.ZIndex = 8
+	Style.Padding(picker, 8)
+	local pl = Instance.new("UIListLayout")
+	pl.FillDirection = Enum.FillDirection.Horizontal
+	pl.Padding = UDim.new(0, 6)
+	pl.SortOrder = Enum.SortOrder.LayoutOrder
+	pl.Parent = picker
+	for i, r in ipairs(Economy.GeodeRarities) do
+		local b = Style.Button(picker, r.name, Critters.RarityColors[r.name] or C.Muted, UDim2.fromOffset(105, 46), function()
+			local result = Remotes.DebugGiveGeode:InvokeServer(r.name)
+			if result and result.message then
+				HUD.Toast(result.message)
+			end
+		end)
+		b.TextSize = 16
+		b.LayoutOrder = i
+	end
+	devButton("Give geode (Studio)", 4, function()
+		picker.Visible = not picker.Visible
+	end)
+	devButton("Reset save (Studio)", 3, function()
+		HUD.Confirm("Reset your save?", "Testing only: wipes everything back to a brand-new player (rebirth 0, no critters, gems or coins).", "Reset", C.Red, function()
+			local result = Remotes.DebugResetSave:InvokeServer()
+			if result and result.ok then
+				HUD.Banner("Fresh save!")
+			end
+		end)
+	end)
 end
 
 ----------------------------------------------------------------------
@@ -496,7 +559,7 @@ function HUD.Confirm(title: string, body: string, confirmText: string, confirmCo
 	if confirmCard then
 		confirmCard:Destroy()
 	end
-	local card = Style.Panel(gui, "Confirm", UDim2.fromOffset(420, 190), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	local card = Style.Panel(overlay, "Confirm", UDim2.fromOffset(420, 190), UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
 	card.ZIndex = 30
 	Style.Padding(card, 16)
 	confirmCard = card
@@ -535,6 +598,7 @@ local function refreshRack()
 	end
 	local now = serverNow()
 	for i, slot in ipairs(rackSlots) do
+		slot.frame.Visible = i <= (state.rackSlots or Economy.RackSlots)
 		local geode = state.geodes[i]
 		slot.geode = geode
 		local border = slot.frame:FindFirstChildOfClass("UIStroke")
@@ -607,7 +671,16 @@ function HUD.Init()
 	gui.Parent = player:WaitForChild("PlayerGui")
 	Style.AutoScale(gui)
 
+	overlay = Instance.new("ScreenGui")
+	overlay.Name = "HUDOverlay"
+	overlay.ResetOnSpawn = false
+	overlay.DisplayOrder = 20 -- over the Gem Book, Hatchery and Rebirth panels
+	overlay.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	overlay.Parent = gui.Parent
+	Style.AutoScale(overlay)
+
 	buildCoins()
+	buildRebirthBadge()
 	buildDepth()
 	buildRack()
 	buildCart()
@@ -631,6 +704,11 @@ function HUD.Update(newState)
 	timeOffset = newState.serverTime - os.time()
 
 	coinsLabel.Text = Formulas.FormatNumber(state.coins)
+	local rebirths = state.rebirths or 0
+	rebirthBadge.Visible = rebirths > 0
+	if rebirths > 0 then
+		rebirthLabel.Text = string.format("Rebirth %d  ·  +%d%% dig", rebirths, math.floor(Formulas.RebirthDig(rebirths) * 100 + 0.5))
+	end
 	depthLabel.Text = string.format("%.1f m", state.depth)
 
 	local stratum = Strata[state.stratum]
@@ -688,7 +766,7 @@ function HUD.Toast(message: string)
 end
 
 function HUD.Banner(text: string)
-	local l = Style.Label(gui, text, 54, {
+	local l = Style.Label(overlay, text, 54, {
 		heading = true,
 		outlined = true,
 		AnchorPoint = Vector2.new(0.5, 0.5),

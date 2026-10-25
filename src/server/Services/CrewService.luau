@@ -29,7 +29,7 @@ function CrewService.Give(data, species: string)
 	end
 	local critter = { id = ShaftService.NewId(data, "c"), species = species, stars = 0 }
 	table.insert(data.critters, critter)
-	if #data.crew < Economy.CrewSlots then
+	if #data.crew < Formulas.CrewSlots(data.rebirths) then
 		table.insert(data.crew, critter.id)
 	end
 	return critter
@@ -124,7 +124,7 @@ local function setCrew(player: Player, critterId: any, assign: any)
 		if index then
 			return { ok = true }
 		end
-		if #data.crew >= Economy.CrewSlots then
+		if #data.crew >= Formulas.CrewSlots(data.rebirths) then
 			return { ok = false, message = "All crew slots are full. Remove a critter first." }
 		end
 		table.insert(data.crew, critterId)

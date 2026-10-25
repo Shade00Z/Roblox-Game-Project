@@ -58,8 +58,12 @@ end
 
 -- Adds ore to the cart, never past capacity. Returns how many units fit.
 -- Totals from the gem stand: { dig, heat, luck, ore, geode }
+-- Totals from the gem stand: { dig, heat, luck, ore, geode }, plus `rebirth`,
+-- the permanent dig bonus from rebirths
 function ShaftService.Boosts(data)
-	return Formulas.GemBoosts(data.equippedGems, data.gemFlawless)
+	local boosts = Formulas.GemBoosts(data.equippedGems, data.gemFlawless)
+	boosts.rebirth = Formulas.RebirthDig(data.rebirths)
+	return boosts
 end
 
 function ShaftService.AddOre(data, ore: { [string]: number }): number
@@ -157,7 +161,7 @@ local function advanceDepth(data, now: number, summary)
 			count += 1
 		end
 		for k = 1, count do
-			if #data.geodes >= Economy.RackSlots then
+			if #data.geodes >= Formulas.RackSlots(data.rebirths) then
 				break
 			end
 			local rarity = Formulas.RollGeodeRarity(rng, luck)
@@ -248,20 +252,22 @@ function ShaftService.BuildState(data)
 		cartValue = math.floor(Formulas.CartValue(data.cart) * (1 + boosts.ore)),
 		gemBoosts = boosts,
 		equippedGems = data.equippedGems,
-		gemSlots = Economy.GemSlots,
+		gemSlots = Formulas.GemSlots(data.rebirths),
+		rebirths = data.rebirths,
+		rebirthDepth = Formulas.RebirthDepth(data.rebirths),
 		gemsValue = data.gemCoins,
 		bitLevel = data.bitLevel,
 		cartLevel = data.cartLevel,
 		pickaxeLevel = data.pickaxeLevel,
-		nextBitCost = nextBit and nextBit.cost or nil,
-		nextCartCost = nextCart and nextCart.cost or nil,
+		nextBitCost = nextBit and Formulas.Price(nextBit.cost, data.rebirths) or nil,
+		nextCartCost = nextCart and Formulas.Price(nextCart.cost, data.rebirths) or nil,
 		seed = data.seed,
 		front = data.front,
 		critters = data.critters,
 		crew = data.crew,
-		crewSlots = Economy.CrewSlots,
+		crewSlots = Formulas.CrewSlots(data.rebirths),
 		geodes = data.geodes,
-		rackSlots = Economy.RackSlots,
+		rackSlots = Formulas.RackSlots(data.rebirths),
 	}
 	for _, addFields in ipairs(stateExtras) do
 		addFields(data, state)
@@ -463,6 +469,58 @@ function ShaftService.Init()
 		catchUp(player, data, 0)
 		ShaftService.PushState(player)
 	end)
+
+	-- Studio only: a geode of the chosen rarity, from your current layer, ready to crack
+	Remotes.DebugGiveGeode.OnServerInvoke = function(player, rarity)
+		if not RunService:IsStudio() then
+			return { ok = false }
+		end
+		local known = false
+		for _, r in ipairs(Economy.GeodeRarities) do
+			if r.name == rarity then
+				known = true
+			end
+		end
+		if not known then
+			return { ok = false }
+		end
+		local data = ShaftService.Update(player)
+		if not data then
+			return { ok = false }
+		end
+		if #data.geodes >= Formulas.RackSlots(data.rebirths) then
+			return { ok = false, message = "Your geode rack is full. Crack one first." }
+		end
+		local now = os.time()
+		table.insert(data.geodes, {
+			id = ShaftService.NewId(data, "g"),
+			rarity = rarity,
+			stratum = Formulas.StratumIndexAt(data.depth),
+			foundAt = now,
+			maturesAt = now,
+		})
+		ShaftService.PushState(player)
+		return { ok = true, message = rarity .. " geode added to your rack." }
+	end
+
+	-- Studio only: start over as a brand-new player (rebirth 0, nothing found)
+	Remotes.DebugResetSave.OnServerInvoke = function(player)
+		if not RunService:IsStudio() then
+			return { ok = false }
+		end
+		if player:GetAttribute("InShaft") == true then
+			PlotService.SendUp(player)
+		end
+		local data = PlayerData.ResetForTesting(player)
+		if not data then
+			return { ok = false }
+		end
+		data.seed = rng:NextInteger(1, 16777215)
+		setUpNewPlayer(data)
+		ShaftService.PushState(player)
+		PlotService.RefreshShowcase(player)
+		return { ok = true }
+	end
 end
 
 function ShaftService.Start()

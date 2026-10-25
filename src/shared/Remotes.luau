@@ -36,9 +36,13 @@ local DEFINITIONS = {
 	BuyEgg = "RemoteFunction", -- (eggId) at the Hatchery
 	HatchEgg = "RemoteFunction", -- (incubatorId) at the Hatchery
 	SetGemSlot = "RemoteFunction", -- (slot, gemId or nil) the gem stand
+	Rebirth = "RemoteFunction", -- () start over for a permanent boost
 
 	-- Studio-only testing helper (ignored on live servers)
 	DebugSkipTime = "RemoteEvent", -- (seconds)
+	DebugRebirth = "RemoteFunction", -- () rebirth right now, at any depth
+	DebugResetSave = "RemoteFunction", -- () back to a brand-new player
+	DebugGiveGeode = "RemoteFunction", -- (rarity) a ready-to-crack geode on your rack
 }
 
 local FOLDER_NAME = "Remotes"
@@ -84,5 +88,9 @@ return Remotes :: {
 	BuyEgg: RemoteFunction,
 	HatchEgg: RemoteFunction,
 	SetGemSlot: RemoteFunction,
+	Rebirth: RemoteFunction,
 	DebugSkipTime: RemoteEvent,
+	DebugRebirth: RemoteFunction,
+	DebugResetSave: RemoteFunction,
+	DebugGiveGeode: RemoteFunction,
 }

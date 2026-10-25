@@ -216,9 +216,14 @@ end
 
 local function refreshStand()
 	local list = equipped()
+	-- share the row between however many slots you have unlocked
+	local count = slotCount()
+	local width = math.floor((552 - (count - 1) * 6) / count)
 	for slot, ui in ipairs(standSlots) do
 		local id = list[slot]
-		ui.frame.Visible = slot <= slotCount()
+		ui.frame.Visible = slot <= count
+		ui.frame.Position = UDim2.fromOffset(124 + (slot - 1) * (width + 6), 6)
+		ui.frame.Size = UDim2.fromOffset(width, 50)
 		if ui.icon then
 			ui.icon:Destroy()
 			ui.icon = nil
@@ -259,7 +264,7 @@ local function buildPage()
 		"%s geodes are %s of finds and hold one of these. Each is worth ~%s at your depth (%s). 1 in 20 is Flawless, worth x%d.",
 		page,
 		pct(geodeShare(page)),
-		Formulas.FormatNumber(OreConfig.GemValue(page, here)),
+		Formulas.FormatNumber(OreConfig.GemValue(page, here, false, state and state.rebirths)),
 		Strata[here].name,
 		Economy.FlawlessMult
 	)
@@ -402,7 +407,8 @@ function GemBook.Init()
 		TextWrapped = true,
 		TextColor3 = C.Muted,
 	})
-	for slot = 1, Economy.GemSlots do
+	local _, _, maxStand = Formulas.MaxSlots()
+	for slot = 1, maxStand do
 		local f = Instance.new("TextButton")
 		f.Text = ""
 		f.AutoButtonColor = false

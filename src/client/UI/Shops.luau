@@ -112,7 +112,8 @@ function Shops.Update(state)
 		bitRow.title.Text = bit.name
 		bitRow.detail.Text = "The best drill bit there is."
 	end
-	setBuy(bitRow, nextBit and nextBit.cost, state.coins)
+	local r = state.rebirths or 0 -- prices climb with every rebirth
+	setBuy(bitRow, nextBit and Formulas.Price(nextBit.cost, r), state.coins)
 
 	local pick = Economy.Pickaxes[state.pickaxeLevel]
 	local nextPick = Economy.Pickaxes[state.pickaxeLevel + 1]
@@ -128,7 +129,7 @@ function Shops.Update(state)
 		pickRow.title.Text = pick.name
 		pickRow.detail.Text = "The best pickaxe there is."
 	end
-	setBuy(pickRow, nextPick and nextPick.cost, state.coins)
+	setBuy(pickRow, nextPick and Formulas.Price(nextPick.cost, r), state.coins)
 
 	local cart = Economy.Carts[state.cartLevel]
 	local nextCart = Economy.Carts[state.cartLevel + 1]
@@ -140,7 +141,7 @@ function Shops.Update(state)
 		cartRow.title.Text = string.format("Ore cart: %d", cart.capacity)
 		cartRow.detail.Text = "The biggest cart there is."
 	end
-	setBuy(cartRow, nextCart and nextCart.cost, state.coins)
+	setBuy(cartRow, nextCart and Formulas.Price(nextCart.cost, r), state.coins)
 end
 
 function Shops.Open()
